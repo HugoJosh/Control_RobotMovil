@@ -1,0 +1,8 @@
+Appl .46 1.12
+Sush .32 1.12
+Milk .18 1.12
+Soap .18 .97
+Perf .32 .97
+Sham .46 .97
+Book .60 .97
+Hamm .74 .97

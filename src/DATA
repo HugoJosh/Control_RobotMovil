@@ -1,0 +1,3 @@
+if ( angle_real > 2*PI) {
+  angle_real = angle_real - 2*PI;
+}

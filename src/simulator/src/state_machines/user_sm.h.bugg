@@ -1,0 +1,464 @@
+/********************************************************
+ *                                                      *
+ *                                                      *
+ *      user_sm.h			          	*
+ *                                                      *
+ *							*
+ *		FI-UNAM					*
+ *		17-2-2019                               *
+ *                                                      *
+ ********************************************************/
+#include <stdlib.h>
+#include <math.h>
+#define THRESHOLD_FOLLOWER 30
+#define THRESHOLD_SENSOR 0.40
+int max;
+int min;
+int center;
+int tangente_der;
+bool follow_object = false;
+bool obstacle = false;
+
+bool vuelta = false;
+
+int giroEsq = 0;
+float rx_init, rx_min;
+float ry_init, ry_min;
+float min_distance;
+int cont;
+
+float pendiente;
+
+void setInitialPosition(float rx, float ry);
+bool evalPosition(float rx, float ry, float lx, float ly);
+void evalDistance(float rx, float ry, float lx, float ly);
+
+
+/*pARA BUG 2*/
+
+void setLine(float rx, float ry, float lx, float ly);
+bool compareM(float rx, float ry, float lx, float ly);
+
+float followObstacle_B3(int size, float *observations, float laser_value,
+	float rx, float ry, float lx, float ly, movement *movements, float Mag_Advance);
+
+int front; //Inicio de los índices que reprecentan el frente del robot
+float prev_adj = 5, prev_tan = 5;
+void seachDistances(float *observations, int size);
+float calculateAngle(float *light_values);
+float followObstacle(int size, float *observations, float laser_value);
+void user_sm(float intensity, float *light_values, float *observations,
+	int size, float laser_value, int  dest, int obs,movement *movements,
+	int *next_state ,float Mag_Advance ,float max_twist, float rx, float ry,
+  float lx, float ly);
+void detectObstacle(int size, float *observations, float laser_value);
+
+float followObstacle_B2(int size, float *observations, float laser_value,
+	float rx, float ry, float lx, float ly, movement *movements, float Mag_Advance);
+
+
+
+// State Machine
+void user_sm(float intensity, float *light_values, float *observations,
+	int size, float laser_value, int  dest, int obs , movement *movements,
+	int *next_state ,float Mag_Advance ,float max_twist, float rx, float ry,
+  float lx, float ly){
+
+int sensor = 0;
+int i;
+int bug_algorithm = 2;
+
+center = size%2 == 0 ? (int) size/2 -1 : (int)(size-1)/2;
+tangente_der = size - 1;
+
+printf("intensity %f\n",intensity);
+printf("quantized destination %d\n",dest);
+printf("quantized obs %d\n",obs);
+printf("center: %d \n", center);
+printf("laser_value: %f\n", laser_value );
+
+seachDistances(observations, size); //Mover dentro del folow
+//En caso de encontar un obstaculo, coloca cerrojo para comezar a evadir
+detectObstacle(size, observations, laser_value);
+
+if(intensity > THRESHOLD_FOLLOWER){
+	movements->twist = 0.0;
+	movements->advance = 0.0;
+	printf("\n **************** Reached light source ************************\n");
+}else{
+	switch (bug_algorithm) {
+		case 0:
+			if (follow_object){
+			movements->twist = followObstacle(size, observations, laser_value);
+			movements->advance = Mag_Advance/2;
+			}else{
+				movements->twist = calculateAngle(light_values);
+				movements->advance = Mag_Advance/2;
+			}
+		break;
+		case 1:
+			if (follow_object){
+			followObstacle_B2(size, observations, laser_value, rx,
+																					 ry, lx, ly, movements, Mag_Advance);
+			}else{
+				movements->twist = calculateAngle(light_values);
+				movements->advance = Mag_Advance/2;
+			}
+		break;
+		case 2:
+			if (follow_object){
+			followObstacle_B3(size, observations, laser_value, rx,
+																					 ry, lx, ly, movements, Mag_Advance);
+			}else{
+				movements->twist = calculateAngle(light_values);
+				movements->advance = Mag_Advance/2;
+			}
+		break;
+	}
+}
+
+}
+
+
+
+
+
+/*
+Calcula el máximo y el mínimo para
+*/
+
+void seachDistances(float *observations, int size){
+	float max_observation = 0.0;
+	float min_observation = 10.0;
+	for (int i = 0; i < size ; i++ ){
+		//printf("laser observations[%d] %f\n",i,observations[i]);
+		if(observations[i] > max_observation){
+			max = i;
+			max_observation = observations[i];
+		}
+		if(observations[i] < min_observation){
+			min = i;
+			min_observation = observations[i];
+		}
+	}
+	printf("max observation[%d] %f\n", max, observations[max] );
+	printf("min observation[%d] %f\n", min, observations[min] );
+}
+
+/*
+Calcula el ángulo de giro cuando se tiene linea de vista directa a la fuente
+de luz.
+*/
+float calculateAngle(float *light_values){
+	int index_ligth = 0;
+	int dir_giro;
+	float max_ligth = 0.0;
+	for (int i = 0; i < 8 ; i++ ){
+		//printf("light_values[%d] %f\n",i,light_values[i]);
+		if( light_values[i] > max_ligth){
+			index_ligth = i;
+			max_ligth = light_values[i];
+		}
+	}
+	dir_giro = index_ligth > 4 ? -(8-index_ligth) : index_ligth;
+	return (dir_giro * 3.1315 / 16);
+}
+
+float followObstacle(int size, float *observations, float laser_value){
+	int dir_giro, scale, tam, tangente;
+	float angle;
+	dir_giro = min > center ? -1 : 1 ; //minimo a la derecha o izquierda
+	scale = (size -1)/2;
+	tangente = min > center? tangente_der : 0; //derecha o izquierda
+  tam = abs(min - tangente);
+	angle = dir_giro * 1.5608/scale * tam;
+	printf("angle: %f , scale: %d, count: %d ",angle, scale, tam);
+	follow_object = laser_value == observations[min]? false : true;
+	return angle;
+
+	//Mejorar como da los giros
+	//Establecer correctamete la condicion de salida
+}
+
+void detectObstacle(int size, float *observations, float laser_value){
+	int j; //Inicio de los índices que reprecentan el frente del robot
+	front = (int) floor(center/2);
+	for (j = front; j<size-front; j++){
+		if (observations[j] <= laser_value*.35){ //Punto medio maximo y mínimo
+			follow_object = true;
+			break;
+		}
+	}
+}
+
+
+
+
+float followObstacle_B2(int size, float *observations, float laser_value,
+	float rx, float ry, float lx, float ly, movement *movements, float Mag_Advance){
+		int dir_giro, scale, tam, tangente;
+		float angle, dif;
+		int adjunto;
+
+		scale = (size -1)/2;
+		adjunto = min > center? size-front : front;
+		tam = abs(min - tangente);
+		dif = fabs(prev_tan - observations[tangente]);
+
+		printf("Valor de dif: %f\n", dif);
+		printf("\nTangente %d y su valoractual : %f\n", tangente,observations[tangente]);
+		printf("Valor previo del tangente valor: %f\n", prev_tan);
+
+
+
+
+		if(!obstacle){
+			//Si es giro inicial
+		  tangente = min > center? tangente_der : 0; //derecha o izquierda Solo se actualiza al inicio
+			dir_giro = min > center ? -1 : 1 ;//minimo a la derecha o izquierda
+			angle = dir_giro * 1.5608/scale * tam;
+			//prev_tan = laser_value;
+			obstacle = true; //Indica que se está siguiendo un obstaculo
+			vuelta = false;
+			//prev_adj = laser_value + 5; //Evita que haga un giro después d ela primera
+			printf("###############ENCONTRO UN OBSTACULO###########\n\n\n"); //Dependencia ocn el anterior, cuidadp
+			movements->twist = angle;
+			movements->advance = Mag_Advance/2; //Mejor avanzar poquito para evitar coliosnes 1.5 no
+			prev_tan = 100;
+			setInitialPosition(rx,ry);
+			return 0;
+		}
+
+		if (!vuelta) { //Asignar como una sola
+			vuelta = evalPosition(rx, ry, rx_init, rx_init);
+			evalDistance(rx, ry, lx, ly);
+			printf("Dando la vuelta\n");
+		}else{
+			follow_object = ! evalPosition(rx, ry, rx_min, ry_min); //Lo saca cuando se llega al punto mínimo
+			obstacle = follow_object;
+			printf("Buscando el punto mínimo\n" );
+		}
+
+		/*Caso cuando da una vuelta a un obstaculo*/
+		if (observations[tangente] == laser_value && giroEsq == 0 ){ //Cambio de 99%
+
+				printf("!!!!!!!!!----!!!!!!!GIRO POR ESQUINA!!!!!--------!!!!!\n\n\n");
+				giroEsq = 2;
+				movements->twist = 0 ;
+				movements->advance = Mag_Advance;//Necesariamente grande para no pegar Si está muy grnad erespecto al tamaño del robot tarda en dar la vuelta
+				return 0;
+			}
+
+			/*Caso cuando dio la vuelta y necesita volver a pegarse*/
+			if (giroEsq == 2) {
+				dir_giro = tangente > 0 ? 1 : -1 ; //Con tangente derecha giro negatico (cero a la derecha)
+				angle = dir_giro * 1.6; //Da giro mayor a 90 //1.60funciona cuadro
+
+				movements->twist = angle;
+				movements->advance = Mag_Advance*1.2;
+				giroEsq--;
+				printf("))))))))))))))))))) 2   Ajuste por giro((((((((((((((())))))))))))))) \n");
+				return 0;
+
+			}else if (observations[tangente] == laser_value && giroEsq == 1){//Si el sensor tangente no está sensando
+				dir_giro = tangente > 0 ? 1 : -1 ; //Con tangente derecha giro negatico (cero a la derecha)
+				movements->twist = 0; //dir_giro*0.015;//Giros pequeños de más de un grado
+				movements->advance = Mag_Advance/3; //Con 4 va muy lento, pero funciona
+
+					printf(")))))))))))))))))))))) avanxo nomas       (((((((((((()))))))))))) \n");
+				return 0;
+			}else if(giroEsq == 1){
+					dir_giro = min > center ? -1 : 1 ;//minimo a la derecha o izquierda
+					angle = dir_giro * 1.5608/scale * tam;
+					movements->twist = angle;
+					movements->advance = Mag_Advance/2;
+					giroEsq--;
+
+					printf(")))))))))))iiiiii777     ajustado       (((((((((((()))))))))))) \n");
+					return 0;
+				}
+
+
+		/*Mantiene la distanca mínima, lo mete*/
+		if (observations[tangente] > laser_value*THRESHOLD_SENSOR ) { //Corrije 7
+				printf("############----______PEGADITO_____--------####3\n\n\n");
+				dir_giro = tangente > 0 ? 1 : -1 ; //Con tangente derecha giro negatico (cero a la derecha)
+				movements->twist = dir_giro * 0.06; //Corrije 3 grados más o menos
+				movements->advance = Mag_Advance/2; //Si es más grnade puede chocar y detenerse
+				return 0;
+		}
+
+		if ( observations[tangente] < laser_value*0.30){//Correción de dirección //Valor depende del máximo
+			//Si se despega (aumenta) giro a la derecha
+			printf("||||||||||||||Despegadito|||||||||||||||||||||||||\n\n\n");
+			//dir_giro = prev_tan < observations[tangente]? -1 : 1 ;
+			dir_giro = tangente > 0 ? -1 : 1;
+			movements->twist = dir_giro  * 0.045;
+			movements->advance = Mag_Advance/2; //2.5
+			return 0;
+		}
+
+
+
+		movements->twist = 0;
+		movements->advance = Mag_Advance/3; //PROBAR MÁS PEQUEÑO PARA QUE NO CHOQUE
+		return 0;
+	}
+
+
+
+	void setInitialPosition(float rx, float ry){
+		rx_init = rx;
+		ry_init = ry;
+		min_distance = 10000;
+		rx_min = rx;
+		ry_min = ry;
+	}
+
+	bool evalPosition(float rx, float ry, float lx, float ly){
+		float distance;
+		distance = sqrt(pow(rx-lx,2) + pow(ry-ly,2));
+		printf("\n\n ========= >>>>>>Distancia evaluación: %f \n", distance);
+		return distance < 0.05;
+	}
+
+	void evalDistance(float rx, float ry, float lx, float ly){
+		float distance;
+		distance = sqrt(pow(rx-lx,2) + pow(ry-ly,2));
+		if(distance < min_distance){
+			rx_min = rx;
+			ry_min = ry;
+			min_distance = distance;
+		}
+	}
+
+
+
+
+	float followObstacle_B3(int size, float *observations, float laser_value,
+		float rx, float ry, float lx, float ly, movement *movements, float Mag_Advance){
+			int dir_giro, scale, tam, tangente;
+			float angle, dif;
+			int adjunto;
+
+			scale = (size -1)/2;
+			adjunto = min > center? size-front : front;
+			tam = abs(min - tangente);
+			dif = fabs(prev_tan - observations[tangente]);
+
+			printf("Valor de dif: %f\n", dif);
+			printf("\nTangente %d y su valoractual : %f\n", tangente,observations[tangente]);
+			printf("Valor previo del tangente valor: %f\n", prev_tan);
+
+
+
+
+			if(!obstacle){
+				//Si es giro inicial
+			  tangente = min > center? tangente_der : 0; //derecha o izquierda Solo se actualiza al inicio
+				dir_giro = min > center ? -1 : 1 ;//minimo a la derecha o izquierda
+				angle = dir_giro * 1.5608/scale * tam;
+				//prev_tan = laser_value;
+				obstacle = true; //Indica que se está siguiendo un obstaculo
+				vuelta = false;
+				//prev_adj = laser_value + 5; //Evita que haga un giro después d ela primera
+				printf("###############ENCONTRO UN OBSTACULO###########\n\n\n"); //Dependencia ocn el anterior, cuidadp
+				movements->twist = angle;
+				movements->advance = Mag_Advance; //Mejor avanzar poquito para evitar coliosnes 1.5 no
+				cont = 5;
+				prev_tan = 100;
+				setLine(rx,ry,lx,ly);
+				return 0;
+			}
+
+
+
+			if (compareM(rx,ry,lx,ly) && cont <= 0) { //Asignar como una sola
+				follow_object = false; //Lo saca cuando se llega al punto mínimo
+				obstacle = false;
+			}else{
+				printf("Buscando el punto sobre la recta\n" );
+				cont = cont >  0? cont - 1 : 0;
+			}
+
+
+
+
+			/*Caso cuando da una vuelta a un obstaculo*/
+			if (observations[tangente] == laser_value && giroEsq == 0 ){ //Cambio de 99%
+
+					printf("!!!!!!!!!----!!!!!!!GIRO POR ESQUINA!!!!!--------!!!!!\n\n\n");
+					giroEsq = 2;
+					movements->twist = 0 ;
+					movements->advance = Mag_Advance;//Necesariamente grande para no pegar Si está muy grnad erespecto al tamaño del robot tarda en dar la vuelta
+					return 0;
+				}
+
+				/*Caso cuando dio la vuelta y necesita volver a pegarse*/
+				if (giroEsq == 2) {
+					dir_giro = tangente > 0 ? 1 : -1 ; //Con tangente derecha giro negatico (cero a la derecha)
+					angle = dir_giro * 1.6; //Da giro mayor a 90 //1.60funciona cuadro
+
+					movements->twist = angle;
+					movements->advance = Mag_Advance*1.2;
+					giroEsq--;
+					printf("))))))))))))))))))) 2   Ajuste por giro((((((((((((((())))))))))))))) \n");
+					return 0;
+
+				}else if (observations[tangente] == laser_value && giroEsq == 1){//Si el sensor tangente no está sensando
+					dir_giro = tangente > 0 ? 1 : -1 ; //Con tangente derecha giro negatico (cero a la derecha)
+					movements->twist = 0; //dir_giro*0.015;//Giros pequeños de más de un grado
+					movements->advance = Mag_Advance/3; //Con 4 va muy lento, pero funciona
+
+						printf(")))))))))))))))))))))) avanxo nomas       (((((((((((()))))))))))) \n");
+					return 0;
+				}else if(giroEsq == 1){
+						dir_giro = min > center ? -1 : 1 ;//minimo a la derecha o izquierda
+						angle = dir_giro * 1.5608/scale * tam;
+						movements->twist = angle;
+						movements->advance = Mag_Advance/2;
+						giroEsq--;
+
+						printf(")))))))))))iiiiii777     ajustado       (((((((((((()))))))))))) \n");
+						return 0;
+					}
+
+
+			/*Mantiene la distanca mínima, lo mete*/
+			if (observations[tangente] > laser_value*THRESHOLD_SENSOR ) { //Corrije 7
+					printf("############----______PEGADITO_____--------####3\n\n\n");
+					dir_giro = tangente > 0 ? 1 : -1 ; //Con tangente derecha giro negatico (cero a la derecha)
+					movements->twist = dir_giro * 0.06; //Corrije 3 grados más o menos
+					movements->advance = Mag_Advance/2; //Si es más grnade puede chocar y detenerse
+					return 0;
+			}
+
+			if ( observations[tangente] < laser_value*0.30){//Correción de dirección //Valor depende del máximo
+				//Si se despega (aumenta) giro a la derecha
+				printf("||||||||||||||Despegadito|||||||||||||||||||||||||\n\n\n");
+				//dir_giro = prev_tan < observations[tangente]? -1 : 1 ;
+				dir_giro = tangente > 0 ? -1 : 1;
+				movements->twist = dir_giro  * 0.045;
+				movements->advance = Mag_Advance/3; //2.5
+				return 0;
+			}
+
+
+
+			movements->twist = 0;
+			movements->advance = Mag_Advance/3; //PROBAR MÁS PEQUEÑO PARA QUE NO CHOQUE
+			return 0;
+		}
+
+
+		void setLine(float rx, float ry, float lx, float ly){
+			pendiente = (rx - lx)/(ry -ly);
+		}
+
+		bool compareM(float rx, float ry, float lx, float ly){
+			float m;
+			m = (rx - lx)/(ry -ly);
+			printf("EME: %f \n", m);
+			printf("pendiente: %f y  la diferencia: %f \n", pendiente,(abs(m-pendiente)/pendiente));
+			return (abs(m-pendiente)/pendiente) < 0.05;
+		}
